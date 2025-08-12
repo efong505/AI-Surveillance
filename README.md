@@ -1,105 +1,151 @@
-# AI Surveillance System Tutorial with Hardware Compatibility and AI Suitability Insights
+AI Surveillance System Tutorial (CPU-Only) with Hardware Compatibility and AI Suitability Insights
+This tutorial outlines how to set up an AI surveillance system using your desktop (Intel Core i9-10900K, 64GB RAM, ASUS Prime Z590-A, 1.82 TB HDD), Reolink RLC-1240A camera, TP-Link PoE+ Injector, and Raspberry Pi Zero 2 WH, without a dedicated GPU. It includes code samples for key components, such as Python scripts for the Raspberry Pi and AWS integration. The focus is on cost-efficiency with free/open-source tools (Shinobi for NVR, DeepStack for AI), integrating AWS for event-based notifications. The tutorial addresses the feasibility of running this system on your CPU and its suitability for AI/LLM development.
+Feasibility Without a GPU
+Your Intel Core i9-10900K (10 cores, 20 threads, 3.7-5.3 GHz) and 64GB RAM are powerful enough to handle the surveillance system, but there are trade-offs:
 
-This tutorial provides a detailed, step-by-step guide to setting up an AI surveillance system using your existing hardware (Intel Core i9-10900K CPU, 64GB RAM, ASUS Prime Z590-A motherboard), the Reolink RLC-1240A camera, TP-Link PoE+ Injector, 1.82 TB hard drive, and Raspberry Pi Zero 2 WH. It includes code samples for key components, such as Python scripts for the Raspberry Pi and AWS integration. The focus is on cost-efficiency, using free/open-source tools like Shinobi for NVR and DeepStack for local AI processing, while integrating AWS for filtered event-based uploads.
+H.265 Video Decoding: The i9-10900K has Intel UHD Graphics 630 with Quick Sync Video, which supports hardware-accelerated H.265 decoding. This offloads video processing from the CPU cores, making it viable for decoding the 12MP stream from the Reolink RLC-1240A. However, Quick Sync is less efficient than NVIDIA’s NVDEC (on RTX GPUs), so CPU usage may spike during intensive tasks like simultaneous decoding and recording.
+DeepStack AI Inference: DeepStack’s CPU mode is 5-20x slower than GPU mode. Your i9-10900K can handle inference for 1-2 camera streams, but processing high-resolution frames for object detection (e.g., person detection) will be slower (0.5-2 seconds per frame vs. <0.1s with GPU). With a single camera, this is manageable, especially with the Raspberry Pi handling low-res motion triggers to reduce load.
+Performance Limits: Expect 20-40% CPU usage for Shinobi recording and decoding one 12MP stream, plus 10-20% per DeepStack inference (depending on frame rate). Your 10-core CPU and 64GB RAM can handle this for a single camera, but scaling to multiple cameras may strain resources, causing delays or dropped frames.
+AI/LLM Suitability: Without a GPU, LLM and AI tasks rely entirely on the CPU. The i9-10900K can run small LLMs (e.g., Llama 7B inference) using tools like Ollama or Hugging Face Transformers, leveraging its high core count and RAM. However, training or running larger models (e.g., Llama 13B+) will be slow, and some tasks (e.g., Stable Diffusion) are impractical without GPU acceleration. For hobbyist AI exploration, it’s sufficient but limited compared to GPU-based setups.
 
-## Hardware Compatibility Notes
-Your ASUS Prime Z590-A motherboard is compatible with the recommended GPUs:
+Conclusion: Your setup is viable for a single-camera surveillance system with AI, but inference speed and scalability are constrained. For AI/LLM work, the CPU is adequate for learning and small-scale inference but not ideal for heavy training or large models. If you plan to expand the system or dive deeper into AI, consider adding a GPU later.
+Prerequisites
 
-- **PCIe Slot Compatibility**: Primary PCIe 4.0 x16 slot runs at PCIe 3.0 with your i9-10900K. Both RTX 3060 and RTX 4060 are backward-compatible.
-- **Power Supply Requirements**: Ensure PSU has 550W+ and an 8-pin PCIe connector.
-- **Physical Fit**: Fits in most cases; check GPU dimensions.
+Hardware: Desktop (i9-10900K, 64GB RAM, Prime Z590-A, 1.82 TB HDD), Reolink RLC-1240A, TP-Link PoE+ Injector, Raspberry Pi Zero 2 WH.
+Software: Windows 11 (or Ubuntu 22.04), Docker Desktop, Python 3.9+, AWS CLI.
+Network: Stable LAN, camera on same subnet as desktop/Pi.
 
-If issues arise, update BIOS from ASUS website.
+Step-by-Step Implementation Guide
+Total setup time: 3-5 hours. Assumes Windows 11; adapt for Linux if needed.
+Phase 1: Hardware and NVR Software Setup
+Step 1: Verify CPU and System Setup
 
-## Suitability of RTX 3060 and RTX 4060 for LLMs and AI Development
-- **RTX 3060 (12GB VRAM)**: Good for small-to-medium LLMs (e.g., Llama 7B inference). Use Ollama for testing.
-- **RTX 4060 (8GB VRAM)**: Suitable for beginners but VRAM-limited for larger models. Both support CUDA for PyTorch/TensorFlow.
+Ensure your i9-10900K is running optimally:
 
-## Step-by-Step Implementation Guide
+Update BIOS to version 1201+ via ASUS website for stability.
+In BIOS, enable Intel Quick Sync Video (ASUS UEFI → Advanced → System Agent → Graphics Configuration → iGPU Multi-Monitor → Enabled).
+Check CPU performance: Run taskmgr (Windows) or htop (Linux) to confirm low idle usage.
 
-### Phase 1: Hardware and NVR Software Setup
 
-**Step 1: Install the GPU and Drivers**
-1. Shut down PC, insert GPU into PCIe x16 slot.
-2. Connect power, boot up.
-3. Download drivers from NVIDIA site:  
-   ```bash
-   # Example for Windows: Run the installer.exe
-   ```
-4. Verify:  
-   ```bash
-   nvidia-smi  # In Command Prompt
-   ```
+Verify 1.82 TB HDD is accessible (e.g., D:/Surveillance).
 
-**Step 2: Install Shinobi NVR Software**
-1. Install Docker Desktop.
-2. Run:  
-   ```bash
-   docker pull shinobicctv/shinobi
-   docker run -d -p 8080:8080 -v /path/to/storage:/config --name shinobi shinobicctv/shinobi
-   ```
-3. Access http://localhost:8080, set up admin.
+Step 2: Install Shinobi NVR Software
 
-**Step 3: Configure the Reolink RLC-1240A Camera**
-1. Connect via PoE injector.
-2. Set static IP, enable RTSP in camera web interface.
-3. RTSP URLs: Main - rtsp://<ip>:554/h265Preview_01_main; Sub - rtsp://<ip>:554/h264Preview_01_sub
+Install Docker Desktop from docker.com (enable WSL2 if prompted).
+Pull and run Shinobi:
+bashdocker pull shinobicctv/shinobi
+docker run -d -p 8080:8080 -v D:/Surveillance:/config --name shinobi shinobicctv/shinobi
 
-**Step 4: Connect Shinobi to the Camera**
-1. Add monitor in Shinobi UI, input RTSP URL.
-2. Set recording to continuous, storage to 1.82 TB drive.
+Maps D:/Surveillance to your HDD for recordings.
 
-### Phase 2: Local AI Processing with DeepStack
 
-**Step 5: Install and Configure DeepStack**
-1. Install NVIDIA Container Toolkit.
-2. Run:  
-   ```bash
-   docker pull deepquestai/deepstack:gpu
-   docker run --gpus all -e VISION-DETECTION=True -p 5000:5000 deepquestai/deepstack:gpu
-   ```
-3. Test:  
-   ```bash
-   curl -X POST -F image=@test.jpg http://localhost:5000/v1/vision/detection
-   ```
+Access Shinobi at http://localhost:8080, create an admin account, and log in.
+Configure storage: Set recording path to /config/videos.
 
-**Step 6: Integrate Shinobi and DeepStack**
-Use Shinobi's plugin or a custom script. Example Python script to bridge:  
-```python
-import requests
+Step 3: Configure the Reolink RLC-1240A Camera
+
+Connect the camera to your router via the TP-Link PoE+ Injector:
+
+Ethernet from router to injector’s “Data In.”
+Ethernet from injector’s “PoE Out” to camera.
+
+
+Power on; find the camera’s IP in your router’s DHCP list or Reolink app.
+Access the camera’s web interface (http://<camera_ip>):
+
+Set a static IP (e.g., 192.168.1.100).
+Enable RTSP under Network → Advanced → RTSP.
+Note URLs:
+
+Main stream (12MP, H.265): rtsp://<camera_ip>:554/h265Preview_01_main
+Sub-stream (720p, H.264): rtsp://<camera_ip>:554/h264Preview_01_sub
+
+
+
+
+Test streams in VLC Media Player (Media → Open Network Stream).
+
+Step 4: Connect Shinobi to the Camera
+
+In Shinobi UI, go to “Monitors” → “Add Monitor.”
+Enter:
+
+Name: e.g., “FrontCamera”
+Protocol: RTSP
+Host: <camera_ip>
+Port: 554
+Path: /h265Preview_01_main
+Stream Type: H.265
+Recording: Continuous
+
+
+Set storage to /config/videos.
+Save and test live view. Verify recordings save to the HDD (30-day archive).
+Monitor CPU usage in Task Manager; expect ~20-30% for one stream.
+
+Phase 2: Local AI Processing with DeepStack (CPU Mode)
+Step 5: Install and Configure DeepStack
+
+Pull and run DeepStack CPU image (no GPU flags):
+bashdocker pull deepquestai/deepstack:cpu
+docker run -e VISION-DETECTION=True -v D:/DeepStack:/datastore -p 5000:5000 deepquestai/deepstack:cpu
+
+Test DeepStack:
+bashcurl -X POST -F image=@test.jpg http://localhost:5000/v1/vision/detection
+
+Upload a sample image; expect JSON with object labels (e.g., “person”). Note slower response (~0.5-2s).
+
+
+
+Step 6: Integrate Shinobi and DeepStack
+
+Create a Python script to bridge Shinobi and DeepStack:
+pythonimport requests
 import cv2
+import time
 
-# Capture frame from Shinobi or directly
-cap = cv2.VideoCapture('rtsp://...')
-ret, frame = cap.read()
-cv2.imwrite('frame.jpg', frame)
+SHINOBI_RTSP = 'rtsp://<camera_ip>:554/h265Preview_01_main'
+DEEPSTACK_URL = 'http://localhost:5000/v1/vision/detection'
 
-# Send to DeepStack
-files = {'image': open('frame.jpg', 'rb')}
-response = requests.post('http://localhost:5000/v1/vision/detection', files=files)
-print(response.json())
-if any(obj['label'] == 'person' for obj in response.json().get('predictions', [])):
-    # Trigger alert
-    pass
-```
+def analyze_frame():
+    cap = cv2.VideoCapture(SHINOBI_RTSP)
+    ret, frame = cap.read()
+    if not ret:
+        cap.release()
+        return False
+    cv2.imwrite('frame.jpg', frame)
+    cap.release()
 
-### Phase 3: Raspberry Pi Zero 2 WH as Edge Trigger
+    files = {'image': open('frame.jpg', 'rb')}
+    response = requests.post(DEEPSTACK_URL, files=files)
+    predictions = response.json().get('predictions', [])
+    return any(obj['label'] == 'person' and obj['confidence'] > 0.8 for obj in predictions)
 
-**Step 7: Set Up the Pi for Sub-Stream Monitoring**
-1. Install Raspberry Pi OS.
-2. Install deps:  
-   ```bash
-   sudo apt install python3-opencv ffmpeg
-   ```
-3. Script:  
-```python
-import cv2
+while True:
+    if analyze_frame():
+        print("Person detected!")
+        # Trigger alert (e.g., log or notify)
+    time.sleep(2)  # Slower polling to reduce CPU load
+
+Run: python deepstack_bridge.py.
+Alternatively, use Shinobi’s webhook (Monitor Settings → Events → Webhook to http://localhost:5000). Adjust polling to balance CPU usage (e.g., 1-2 frames/sec).
+
+Phase 3: Raspberry Pi Zero 2 WH as Edge Trigger
+Step 7: Set Up the Pi for Sub-Stream Monitoring
+
+Install Raspberry Pi OS Lite via Raspberry Pi Imager.
+Connect to WiFi or Ethernet (use a USB Ethernet HAT if needed).
+Install dependencies:
+bashsudo apt update && sudo apt install python3-opencv ffmpeg -y
+
+Create a motion detection script:
+pythonimport cv2
 import requests
 import numpy as np
 import time
 
 RTSP_SUB = 'rtsp://<camera_ip>:554/h264Preview_01_sub'
-DESKTOP_URL = 'http://<desktop_ip>:8080/trigger'  # Custom endpoint in Shinobi or Flask app
+DESKTOP_URL = 'http://<desktop_ip>:5001/trigger'
 
 cap = cv2.VideoCapture(RTSP_SUB)
 prev_frame = None
@@ -109,53 +155,67 @@ while True:
     if not ret:
         time.sleep(1)
         continue
-    
+
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (21, 21), 0)
-    
+
     if prev_frame is None:
         prev_frame = gray
         continue
-    
+
     frame_delta = cv2.absdiff(prev_frame, gray)
     thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
-    
+
     if np.sum(thresh) > 10000:  # Adjust threshold
-        requests.post(DESKTOP_URL, json={'event': 'motion'})
-    
+        try:
+            requests.post(DESKTOP_URL, json={'event': 'motion'}, timeout=2)
+            print("Motion detected, notified desktop")
+        except Exception as e:
+            print(f"Error: {e}")
+
     prev_frame = gray
-    time.sleep(0.5)  # Poll every 0.5s
-```
+    time.sleep(0.5)
 
-4. Run on boot: Add to crontab `@reboot python3 /path/to/script.py`
+Save as motion.py, run on boot:
+bashcrontab -e
+# Add: @reboot python3 /home/pi/motion.py
 
-**Step 8: Pi as Trigger Mechanism**
-- On desktop, set up a simple Flask server to receive trigger and activate DeepStack.  
-```python
-from flask import Flask, request
-import subprocess  # To trigger Shinobi or DeepStack
+
+Step 8: Pi as Trigger Mechanism
+
+On the desktop, set up a Flask server:
+pythonfrom flask import Flask, request
+import subprocess
+import cv2
+import requests
 
 app = Flask(__name__)
 
 @app.route('/trigger', methods=['POST'])
 def trigger():
-    # Capture high-res frame and send to DeepStack
-    # Example: Use ffmpeg to grab frame
-    subprocess.run(['ffmpeg', '-i', 'rtsp://<main_stream>', '-vframes', '1', 'frame.jpg'])
-    # Then send to DeepStack as above
+    # Capture high-res frame
+    subprocess.run(['ffmpeg', '-i', 'rtsp://<camera_ip>:554/h265Preview_01_main', '-vframes', '1', 'frame.jpg'])
+    # Send to DeepStack
+    files = {'image': open('frame.jpg', 'rb')}
+    response = requests.post('http://localhost:5000/v1/vision/detection', files=files)
+    if any(obj['label'] == 'person' for obj in response.json().get('predictions', [])):
+        print("Person detected, triggering AWS")
+        # Call AWS upload (Step 10)
     return 'OK'
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
-```
+    app.run(host='0.0.0.0', port=5001)
 
-### Phase 4: AWS Integration for Notifications
+Run: python flask_server.py.
 
-**Step 9: Set Up AWS Services**
-1. Create S3 bucket, Lambda function, SNS topic.
-2. Lambda example (Python):  
-```python
-import json
+Phase 4: AWS Integration for Notifications
+Step 9: Set Up AWS Services
+
+Sign up for AWS (free tier).
+Create an S3 bucket (surveillance-events).
+Create an SNS topic (PersonDetection); subscribe an email/SMS.
+Create a Lambda function (Python 3.9):
+pythonimport json
 import boto3
 from botocore.exceptions import ClientError
 
@@ -165,7 +225,7 @@ sns = boto3.client('sns')
 def lambda_handler(event, context):
     bucket = event['Records'][0]['s3']['bucket']['name']
     key = event['Records'][0]['s3']['object']['key']
-    
+
     try:
         response = rekognition.detect_labels(
             Image={'S3Object': {'Bucket': bucket, 'Name': key}},
@@ -173,34 +233,59 @@ def lambda_handler(event, context):
         )
         if any(label['Name'] == 'Person' for label in response['Labels']):
             sns.publish(
-                TopicArn='arn:aws:sns:your-region:account:topic',
-                Message='Person detected!'
+                TopicArn='arn:aws:sns:<region>:<account>:PersonDetection',
+                Message='Person detected at ' + key
             )
     except ClientError as e:
         print(e)
     return {'statusCode': 200}
-```
 
-**Step 10: Desktop Script for AWS Upload**
-```python
-import boto3
+Set S3 event trigger: Upload to bucket → invoke Lambda.
+
+Step 10: Desktop Script for AWS Upload
+
+Install AWS CLI and configure (aws configure).
+Script to upload on DeepStack detection:
+pythonimport boto3
 import cv2
+import time
 
 s3 = boto3.client('s3')
 
-# After DeepStack detects person
-cap = cv2.VideoCapture('rtsp://<main>')
-ret, frame = cap.read()
-cv2.imwrite('event.jpg', frame)  # Crop if needed
+def upload_to_aws():
+    cap = cv2.VideoCapture('rtsp://<camera_ip>:554/h265Preview_01_main')
+    ret, frame = cap.read()
+    if ret:
+        cv2.imwrite('event.jpg', frame)
+        s3.upload_file('event.jpg', 'surveillance-events', 'event_' + str(int(time.time())) + '.jpg')
+    cap.release()
 
-s3.upload_file('event.jpg', 'your-bucket', 'event.jpg')
-```
-
-**Step 11: Test the Full Workflow**
-- Simulate motion, check logs, verify notifications.
-
-## Summary and Tips
-- Secure your setup with firewalls and VPN.
-- For AI exploration, install Ollama: `curl https://ollama.ai/install.sh | sh` and run `ollama run llama2`.
+# Call from Step 8’s Flask trigger after DeepStack confirms person
+upload_to_aws()
 
 
+Step 11: Test the Full Workflow
+
+Simulate motion in front of the camera.
+Check:
+
+Pi logs (cat /var/log/syslog | grep motion).
+Flask logs for trigger receipt.
+DeepStack response (slower due to CPU).
+AWS S3 for uploaded images.
+SNS for notifications.
+
+
+Verify Shinobi recordings (UI → Monitor → Playback).
+Monitor CPU usage in Task Manager; adjust DeepStack polling if >50%.
+
+Summary and Tips
+
+Workflow: Camera → Shinobi (records) → Pi (triggers) → DeepStack (CPU-based AI) → AWS (notifications).
+Costs: Free locally; AWS ~$0.01-0.10/event.
+Security: Use VLAN for camera, HTTPS for Shinobi, AWS IAM roles.
+AI/LLM: Install Ollama for CPU-based LLM testing:
+bashcurl https://ollama.ai/install.sh | sh
+ollama run mistral
+
+Troubleshooting: Check Docker logs (docker logs shinobi), ensure ports open (554, 8080, 5000, 5001), monitor CPU usage (taskmgr).
